@@ -87,7 +87,15 @@
         // 全域變數檢查和初始化
         // 這些變數由 Canvas 環境提供
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
+        const firebaseConfig = {
+              apiKey: "AIzaSyCqmIYGSQbj-OHa2OCcJkNPzFMct42wKq0",
+              authDomain: "seating-plan-57158.firebaseapp.com",
+              projectId: "seating-plan-57158",
+              storageBucket: "seating-plan-57158.firebasestorage.app",
+              messagingSenderId: "536713942855",
+              appId: "1:536713942855:web:6331ae8808e9ec73795e62",
+              measurementId: "G-Z4XL1Y0Q4F"
+        };
         const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
 
         let db;
