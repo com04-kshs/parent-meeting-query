@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>家長會桌次快速查詢</title>
+    <!-- 載入 Tailwind CSS CDN，用於快速美化介面 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* 設定字體為 Inter，並為中文字體提供 fallback */
+        :root {
+            font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+        }
+        /* 隱藏預設的訊息框 */
+        .message-box {
+            display: none;
+        }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen flex flex-col items-center p-4">
+    <div class="w-full max-w-lg">
+        <!-- 應用程式標頭 -->
+        <header class="text-center py-6 sm:py-10">
+            <h1 class="text-3xl sm:text-4xl font-extrabold text-blue-800 tracking-tight">
+                家長會桌次快速查詢
+            </h1>
+            <p class="mt-2 text-gray-500 text-lg">輸入姓名即可立即查詢桌次</p>
+        </header>
+
+        <!-- 查詢輸入區域 -->
+        <main class="bg-white p-6 sm:p-8 rounded-xl shadow-2xl space-y-6">
+            <div class="space-y-2">
+                <label for="nameInput" class="block text-sm font-medium text-gray-700">
+                    請輸入來賓姓名 (全名)
+                </label>
+                <input
+                    type="text"
+                    id="nameInput"
+                    placeholder="例如：謝金秀"
+                    class="w-full px-5 py-4 border-2 border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 transition duration-150 text-xl"
+                    oninput="handleSearch()"
+                    onkeydown="if(event.key === 'Enter') handleSearch()"
+                    autocomplete="off"
+                />
+            </div>
+
+            <!-- 查詢按鈕 (可選，但為了手機操作習慣保留) -->
+            <button
+                onclick="handleSearch()"
+                id="searchButton"
+                class="w-full flex items-center justify-center px-6 py-3 border border-transparent text-base font-medium rounded-lg shadow-lg text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition duration-300"
+            >
+                <svg class="h-5 w-5 mr-2" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clip-rule="evenodd" />
+                </svg>
+                開始查詢
+            </button>
+        </main>
+
+        <!-- 查詢結果顯示區域 -->
+        <div id="resultsContainer" class="mt-8">
+            <div id="loadingIndicator" class="hidden text-center text-blue-500 font-medium p-4">
+                <div class="animate-spin inline-block w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full"></div>
+                <p class="mt-2">查詢中...</p>
+            </div>
+            
+            <div id="resultBox" class="message-box p-6 sm:p-8 rounded-xl shadow-xl text-center transition duration-500 transform scale-100">
+                <p id="messageText" class="text-xl font-semibold mb-3"></p>
+                <div id="tableDisplay" class="text-6xl sm:text-8xl font-black tracking-tighter" style="line-height: 1;"></div>
+                <p class="text-gray-500 mt-4" id="subMessage"></p>
+            </div>
+        </div>
+
+        <!-- 錯誤或提示訊息 -->
+        <div id="alertBox" class="hidden fixed bottom-4 left-1/2 transform -translate-x-1/2 p-3 rounded-lg shadow-xl text-white transition duration-300 z-50"></div>
+    </div>
+
+    <!-- Firebase SDKs 載入 -->
+    <script type="module">
+        // 匯入 Firebase 核心功能
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        // 匯入 Firebase 驗證功能
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        // 匯入 Firebase Firestore 資料庫功能
+        import { getFirestore, doc, getDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // 全域變數檢查和初始化
+        // 這些變數由 Canvas 環境提供
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        let db;
+        let auth;
+        let userId = null;
+        let isAuthReady = false; // 確保 Firebase 完成初始化和登入
+        
+        // UI 元素引用
+        const nameInput = document.getElementById('nameInput');
+        const loadingIndicator = document.getElementById('loadingIndicator');
+        const resultBox = document.getElementById('resultBox');
+        const messageText = document.getElementById('messageText');
+        const tableDisplay = document.getElementById('tableDisplay');
+        const subMessage = document.getElementById('subMessage');
+        const alertBox = document.getElementById('alertBox');
+        
+        // 顯示自定義通知訊息（取代 alert()）
+        function showAlert(message, isError = false) {
+            alertBox.textContent = message;
+            alertBox.className = 'fixed bottom-4 left-1/2 transform -translate-x-1/2 p-3 rounded-lg shadow-xl text-white transition duration-300 z-50';
+            
+            if (isError) {
+                alertBox.classList.add('bg-red-600');
+            } else {
+                alertBox.classList.add('bg-gray-800');
+            }
+
+            alertBox.classList.remove('hidden');
+            
+            setTimeout(() => {
+                alertBox.classList.add('hidden');
+            }, 3000);
+        }
+
+        // 初始化 Firebase 和驗證
+        async function initializeFirebase() {
+            if (!firebaseConfig) {
+                showAlert("❌ Firebase 配置資訊遺失，無法連線資料庫。", true);
+                return;
+            }
+
+            try {
+                const app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+
+                // 登入邏輯
+                if (initialAuthToken) {
+                    await signInWithCustomToken(auth, initialAuthToken);
+                } else {
+                    await signInAnonymously(auth);
+                }
+
+                onAuthStateChanged(auth, (user) => {
+                    if (user) {
+                        userId = user.uid;
+                        isAuthReady = true;
+                        console.log("✅ Firebase 驗證成功，用戶 ID:", userId);
+                    } else {
+                        // 雖然已經嘗試登入匿名，但仍建議確認狀態
+                        console.warn("⚠️ Firebase 驗證失敗或用戶登出。");
+                        isAuthReady = true; // 即使匿名也要標記為準備就緒
+                    }
+                });
+
+            } catch (error) {
+                showAlert(`❌ Firebase 初始化失敗: ${error.message}`, true);
+                console.error("Firebase initialization failed:", error);
+            }
+        }
+
+        // 查詢函數
+        async function fetchTable(name) {
+            if (!isAuthReady || !db) {
+                showAlert("系統仍在初始化中，請稍候再試。", false);
+                return null;
+            }
+
+            // 確保姓名不為空，且避免過多空白
+            const trimmedName = name.trim();
+            if (trimmedName.length === 0) {
+                return null;
+            }
+            
+            // 由於姓名是 Firestore 的 Document ID，我們直接構建路徑
+            // Path: /artifacts/{appId}/public/data/seating_plan/{name}
+            const docPath = `artifacts/${appId}/public/data/seating_plan`;
+            const docRef = doc(db, docPath, trimmedName);
+
+            try {
+                loadingIndicator.classList.remove('hidden');
+                
+                const docSnap = await getDoc(docRef);
+
+                loadingIndicator.classList.add('hidden');
+
+                if (docSnap.exists()) {
+                    return docSnap.data().table; // 回傳桌次
+                } else {
+                    return null; // 查無資料
+                }
+
+            } catch (error) {
+                loadingIndicator.classList.add('hidden');
+                showAlert("❌ 查詢資料庫時發生錯誤，請檢查連線。", true);
+                console.error("Firestore query error:", error);
+                return null;
+            }
+        }
+
+        // 處理查詢和更新 UI 的主函數
+        window.handleSearch = async function() {
+            const name = nameInput.value;
+            const resultBoxClasses = "message-box p-6 sm:p-8 rounded-xl shadow-xl text-center transition duration-500 transform scale-100";
+
+            // 清空舊結果
+            resultBox.style.display = 'none';
+
+            if (name.trim() === '') {
+                return;
+            }
+
+            const table = await fetchTable(name);
+
+            resultBox.classList.remove('hidden');
+            resultBox.classList.remove('bg-green-50', 'bg-red-50');
+            resultBox.classList.remove('border-green-300', 'border-red-300');
+            resultBox.style.display = 'block';
+
+            if (table) {
+                // 成功找到
+                resultBox.className = `${resultBoxClasses} bg-green-50 border-4 border-green-300`;
+                messageText.textContent = `✅ 查詢成功！${name} 的桌次是：`;
+                tableDisplay.textContent = table;
+                tableDisplay.classList.remove('text-red-600');
+                tableDisplay.classList.add('text-green-600');
+                subMessage.textContent = `請依照指示前往 ${table} 入座。`;
+            } else {
+                // 查無資料
+                resultBox.className = `${resultBoxClasses} bg-red-50 border-4 border-red-300`;
+                messageText.textContent = `❌ 查無資料`;
+                tableDisplay.textContent = nameInput.value;
+                tableDisplay.classList.remove('text-green-600');
+                tableDisplay.classList.add('text-red-600');
+                subMessage.textContent = "請確認輸入的姓名是否正確，或洽詢報到處服務人員。";
+            }
+        };
+
+        // 頁面載入時初始化 Firebase
+        initializeFirebase();
+    </script>
+</body>
+</html>
