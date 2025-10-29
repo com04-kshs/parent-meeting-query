@@ -86,7 +86,7 @@
 
         // 全域變數檢查和初始化
         // 這些變數由 Canvas 環境提供
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        
         const firebaseConfig = {
               apiKey: "AIzaSyCqmIYGSQbj-OHa2OCcJkNPzFMct42wKq0",
               authDomain: "seating-plan-57158.firebaseapp.com",
@@ -96,7 +96,8 @@
               appId: "1:536713942855:web:6331ae8808e9ec73795e62",
               measurementId: "G-Z4XL1Y0Q4F"
         };
-        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+        const appId = 'default-app-id'; // <--- 請確保這裡與您 Python 腳本中的 APP_ID 相同
+        const initialAuthToken = null; // 在外部環境中，我們不需要自動注入的 token
 
         let db;
         let auth;
